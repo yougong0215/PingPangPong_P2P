@@ -18,13 +18,6 @@ public class PlayerBinder : NetworkBehaviour
     [SerializeField] private float _movementSpeed = 5f;
     Team _myEnum;
 
-    void Awake()
-    {
-        transform.position += new Vector3(0, Input.GetAxisRaw("Vertical"), 0) * 8 * Time.deltaTime;
-
-        //_inputReader.
-    }
-
     public override void OnNetworkSpawn()
     {
         if(!IsOwner) return;

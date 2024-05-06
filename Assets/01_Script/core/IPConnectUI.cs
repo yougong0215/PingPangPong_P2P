@@ -12,7 +12,7 @@ public class IPConnectUI : MonoBehaviour
 {
     [SerializeField] private Button _hostBtn, _clientBtn;
     [SerializeField] private TMP_InputField _ipText, _portText;
-
+    /*
     private void Awake()
     {
         _hostBtn.onClick.AddListener(HandleHostBtnClick);
@@ -98,5 +98,5 @@ public class IPConnectUI : MonoBehaviour
     {
         Debug.Log(clientID + ", 에러 발생");
     }
-
+    */
 }

@@ -7,13 +7,29 @@ using Unity.Netcode.Transports.UTP;
 using Unity.Netcode;
 using Unity.Networking.Transport.Relay;
 using UnityEngine.SceneManagement;
+using System.Collections.Generic;
+using Unity.Services.Lobbies.Models;
+using Unity.Services.Lobbies;
+using System.Collections;
+using System.Text;
+using Unity.Services.Authentication;
 
-public class HostGameManager
+public class HostGameManager : IDisposable
 {
     //유니티 릴레이 서버에 내 클라이언트를 위한 공간을 할당해주는 행위
     private Allocation _allocation;
     private string _joinCode;
+    private string _lobbyId;
     private const int _maxConnections = 20;
+
+
+    private NetworkServer _networkServer;
+
+    private void MakeNetworkServer()
+    {
+        _networkServer = new NetworkServer(NetworkManager.Singleton);
+    }
+
     public async Task StartHostAsync()
     {
         try
@@ -43,11 +59,92 @@ public class HostGameManager
         var relayServerData = new RelayServerData(_allocation, "dtls"); //udp보다 보안이 향상된 버전
         transport.SetRelayServerData(relayServerData);
 
+
+        string playerName = ClientSingleton.Instance.GameManager.PlayerName;
+        //여기서 로비정보를 받아온다.
+        try
+        {
+            //로비를 만들기 위한 옵션들을 넣는다.
+            CreateLobbyOptions lobbyOptions = new CreateLobbyOptions();
+            lobbyOptions.IsPrivate = false; //로비 옵션을 만들어서 넣어줘야 한다. 만약 이걸 true로 하면 조인코드로만 참석 가능
+
+            // 해당 로비 옵션에 Join코드를 넣어준다. (커스텀데이터를 이런식으로 넣는다)
+            // Visbilty Member는 해당 로비의 멤버는 자유롭게 읽을 수 있다는 뜻.
+            lobbyOptions.Data = new Dictionary<string, DataObject>()
+            {
+                {
+                    "JoinCode", new DataObject(visibility: DataObject.VisibilityOptions.Member, value:_joinCode)
+                }
+            };
+            //로비 이름과 옵션을 넣어주도록 되어 있음.
+            Lobby lobby = await Lobbies.Instance.CreateLobbyAsync($"{playerName}'s Lobby", _maxConnections, lobbyOptions);
+
+            //로비는 만들어진후 활동이 없으면 파괴되도록되어 있다. 따라서 일정시간간격으로 ping을 보내야 한다.
+            _lobbyId = lobby.Id;
+            HostSingleton.Instance.StartCoroutine(HeartBeatLobby(15)); //15초마다 핑
+        }
+        catch (LobbyServiceException e)
+        {
+            Debug.LogError("여서 뻑남" + e);
+            return;
+        }
+
+        MakeNetworkServer();
+
+        UserData userData = new UserData()
+        {
+            username = playerName,
+            userAuthId = AuthenticationService.Instance.PlayerId
+        };
+        string json = JsonUtility.ToJson(userData);
+        byte[] payload = Encoding.UTF8.GetBytes(json);
+        NetworkManager.Singleton.NetworkConfig.ConnectionData = payload;
+        Debug.LogError("여까지됨2222");
+
         if (NetworkManager.Singleton.StartHost())
         {
-            NetworkManager.Singleton.SceneManager.LoadScene(SceneNames.GameScene, LoadSceneMode.Single);
+            Debug.LogError("여까지됨3333");
+            NetworkManager.Singleton.SceneManager.LoadScene(SceneNames.ReadyLobbyScene, LoadSceneMode.Single);
         }
 
     }
+    private IEnumerator HeartBeatLobby(float waitTimeSec)
+    {
+        var timer = new WaitForSecondsRealtime(waitTimeSec);
+        while (true)
+        {
+            Lobbies.Instance.SendHeartbeatPingAsync(_lobbyId); //로비로 핑 보내고
+            yield return timer;
+        }
+    }
+
+    //상단 생략
+    public void Dispose()
+    {
+        Shutdown();
+    }
+
+    public async void Shutdown()
+    {
+        //하트비트 코루틴 꺼준다.
+        HostSingleton.Instance.StopAllCoroutines();
+
+        if (!string.IsNullOrEmpty(_lobbyId))
+        {
+            try
+            {
+                await Lobbies.Instance.DeleteLobbyAsync(_lobbyId); //나올때 방삭제
+            }
+            catch (LobbyServiceException e)
+            {
+                Debug.LogError(e);
+            }
+        }
+
+        _lobbyId = string.Empty;
+        _networkServer?.Dispose();
+    }
+
+
 
 }
